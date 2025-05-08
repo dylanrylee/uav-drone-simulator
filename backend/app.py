@@ -1,0 +1,121 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import threading
+import time
+
+app = Flask(__name__)
+CORS(app)
+
+# Initial drone state with telemetry
+status = {
+    "armed": False,
+    "altitude": 0,
+    "mission": [],
+    "state": "disarmed",
+    "battery": 100,
+    "gps_locked": True,
+    "flight_mode": "MANUAL"
+}
+
+# === Background Thread for Real-Time Simulation ===
+def telemetry_loop():
+    while True:
+        time.sleep(5)
+
+        # Skip if drone is disarmed
+        if status["state"] == "disarmed":
+            continue
+
+        # Drain battery over time
+        status["battery"] = max(status["battery"] - 1, 0)
+
+        # Altitude change logic
+        if status["state"] == "flying":
+            status["altitude"] = min(status["altitude"] + 2, 120)
+        elif status["state"] == "landing":
+            status["altitude"] = max(status["altitude"] - 5, 0)
+            if status["altitude"] == 0:
+                status["state"] = "disarmed"
+                status["armed"] = False
+                status["flight_mode"] = "MANUAL"
+
+        # Auto-landing on critical battery
+        if status["battery"] <= 5 and status["state"] == "flying":
+            status["state"] = "landing"
+            status["flight_mode"] = "FAILSAFE"
+
+# Start background telemetry thread
+threading.Thread(target=telemetry_loop, daemon=True).start()
+
+# === API Routes ===
+
+@app.route('/api/arm', methods=['POST'])
+def arm():
+    if status["battery"] < 10:
+        return jsonify({"message": "Battery too low to arm"}), 400
+    if status["state"] != "disarmed":
+        return jsonify({"message": "Cannot arm from current state"}), 400
+
+    status["armed"] = True
+    status["state"] = "armed"
+    status["battery"] = max(status["battery"] - 1, 0)
+    return jsonify({"message": "Drone armed"})
+
+@app.route('/api/takeoff', methods=['POST'])
+def takeoff():
+    if status["battery"] < 20:
+        return jsonify({"message": "Battery too low to take off"}), 400
+    if not status["gps_locked"]:
+        return jsonify({"message": "Cannot take off: GPS signal lost"}), 400
+    if status["state"] != "armed":
+        return jsonify({"message": "Drone must be armed before takeoff"}), 400
+
+    status["altitude"] = 10
+    status["state"] = "flying"
+    status["flight_mode"] = "AUTO"
+    status["battery"] = max(status["battery"] - 5, 0)
+    return jsonify({"message": "Drone took off to 10m"})
+
+@app.route('/api/land', methods=['POST'])
+def land():
+    if status["state"] != "flying":
+        return jsonify({"message": "Drone must be flying to land"}), 400
+
+    status["state"] = "landing"
+    status["flight_mode"] = "MANUAL"
+    status["battery"] = max(status["battery"] - 2, 0)
+    return jsonify({"message": "Landing sequence started"})
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    return jsonify(status)
+
+@app.route('/api/mission', methods=['POST'])
+def upload_mission():
+    if not status["gps_locked"]:
+        return jsonify({"message": "Cannot upload mission: GPS lock required"}), 400
+
+    data = request.json
+    status["mission"] = data.get("waypoints", [])
+    return jsonify({"message": "Mission uploaded", "mission": status["mission"]})
+
+@app.route('/api/clear_mission', methods=['POST'])
+def clear_mission():
+    status["mission"] = []
+    return jsonify({"message": "Mission cleared"})
+
+@app.route('/api/reset', methods=['POST'])
+def reset():
+    status.update({
+        "armed": False,
+        "altitude": 0,
+        "mission": [],
+        "state": "disarmed",
+        "battery": 100,
+        "gps_locked": True,
+        "flight_mode": "MANUAL"
+    })
+    return jsonify({"message": "Drone reset to default state"})
+
+if __name__ == '__main__':
+    app.run(debug=True)
