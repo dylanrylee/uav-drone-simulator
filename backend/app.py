@@ -11,6 +11,7 @@ status = {
     "armed": False,
     "altitude": 0,
     "mission": [],
+    "current_wp_index": None,
     "state": "disarmed",
     "battery": 100,
     "gps_locked": True,
@@ -20,16 +21,16 @@ status = {
 # === Background Thread for Real-Time Simulation ===
 def telemetry_loop():
     while True:
-        time.sleep(5)
+        time.sleep(5)  # Runs every 5 seconds
 
-        # Skip if drone is disarmed
+        # Skip simulation if drone is disarmed
         if status["state"] == "disarmed":
             continue
 
-        # Drain battery over time
+        # === Battery drain ===
         status["battery"] = max(status["battery"] - 1, 0)
 
-        # Altitude change logic
+        # === Altitude simulation ===
         if status["state"] == "flying":
             status["altitude"] = min(status["altitude"] + 2, 120)
         elif status["state"] == "landing":
@@ -38,11 +39,24 @@ def telemetry_loop():
                 status["state"] = "disarmed"
                 status["armed"] = False
                 status["flight_mode"] = "MANUAL"
+                status["current_wp_index"] = None
 
-        # Auto-landing on critical battery
+        # === Critical battery → initiate landing ===
         if status["battery"] <= 5 and status["state"] == "flying":
             status["state"] = "landing"
             status["flight_mode"] = "FAILSAFE"
+            status["current_wp_index"] = None
+
+        # === Mission simulation ===
+        if status["state"] == "flying" and status["mission"]:
+            idx = status.get("current_wp_index")
+            if idx is not None and idx < len(status["mission"]) - 1:
+                status["current_wp_index"] += 1
+            elif idx == len(status["mission"]) - 1:
+                # Final waypoint reached → initiate landing
+                status["state"] = "landing"
+                status["flight_mode"] = "MANUAL"
+                status["current_wp_index"] = None
 
 # Start background telemetry thread
 threading.Thread(target=telemetry_loop, daemon=True).start()
@@ -74,6 +88,10 @@ def takeoff():
     status["state"] = "flying"
     status["flight_mode"] = "AUTO"
     status["battery"] = max(status["battery"] - 5, 0)
+
+    if status["mission"]:
+        status["current_wp_index"] = 0
+
     return jsonify({"message": "Drone took off to 10m"})
 
 @app.route('/api/land', methods=['POST'])
@@ -96,12 +114,31 @@ def upload_mission():
         return jsonify({"message": "Cannot upload mission: GPS lock required"}), 400
 
     data = request.json
-    status["mission"] = data.get("waypoints", [])
-    return jsonify({"message": "Mission uploaded", "mission": status["mission"]})
+    raw_waypoints = data.get("waypoints", [])
+
+    # Use a Calgary-ish base location
+    base_lat, base_lng = 51.0447, -114.0719
+
+    # Generate fake GPS points slightly offset for each waypoint
+    status["mission"] = [
+        {
+            "name": wp,
+            "lat": base_lat + (i * 0.001),
+            "lng": base_lng + (i * 0.001)
+        }
+        for i, wp in enumerate(raw_waypoints)
+    ]
+
+    return jsonify({
+        "message": "Mission uploaded",
+        "mission": status["mission"]
+    })
+
 
 @app.route('/api/clear_mission', methods=['POST'])
 def clear_mission():
     status["mission"] = []
+    status["current_wp_index"] = None
     return jsonify({"message": "Mission cleared"})
 
 @app.route('/api/reset', methods=['POST'])
@@ -110,6 +147,7 @@ def reset():
         "armed": False,
         "altitude": 0,
         "mission": [],
+        "current_wp_index": None,
         "state": "disarmed",
         "battery": 100,
         "gps_locked": True,

@@ -58,3 +58,16 @@
     margin-bottom: 0.5rem;
   }
   
+  .progressBar {
+    height: 10px;
+    background-color: #eee;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  
+  .progressBarInner {
+    height: 100%;
+    background-color: #007bff;
+    transition: width 0.5s ease-in-out;
+  }
+  

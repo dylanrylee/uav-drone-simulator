@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styles from './App.module.css';
 import { ToastContainer, toast } from 'react-toastify';
+import MapView from './MapView';
 import 'react-toastify/dist/ReactToastify.css';
 
 const API_URL = "http://localhost:5000/api";
@@ -12,13 +13,10 @@ function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchStatus(); // no toast shown here
+      fetchStatus();
     }, 5000);
-  
     return () => clearInterval(interval);
   }, []);
-  
-  
 
   const logAction = (action) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -30,28 +28,23 @@ function App() {
       const res = await fetch(`${API_URL}/status`);
       const data = await res.json();
       setStatus(data);
-      if (showToast) {
-        toast.success("✅ Status fetched");
-      }
+      if (showToast) toast.success("✅ Status fetched");
       logAction("Fetched status");
     } catch (err) {
       toast.error("❌ Failed to fetch status");
       logAction("Failed to fetch status");
     }
   };
-  
 
   const sendCommand = async (endpoint) => {
     try {
       const res = await fetch(`${API_URL}/${endpoint}`, { method: 'POST' });
-  
       if (!res.ok) {
         const errorData = await res.json();
         toast.error(`❌ ${errorData.message}`);
         logAction(`${endpoint} failed: ${errorData.message}`);
         return;
       }
-  
       const data = await res.json();
       toast.success(`✅ ${data.message || `${endpoint} succeeded`}`);
       logAction(data.message || `${endpoint} sent`);
@@ -61,7 +54,6 @@ function App() {
       logAction(`${endpoint} failed`);
     }
   };
-  
 
   const uploadMission = async () => {
     const wpList = waypoints.split(',').map(w => w.trim()).filter(w => w);
@@ -70,21 +62,21 @@ function App() {
       logAction("Mission upload failed (empty input)");
       return;
     }
-  
+
     try {
       const res = await fetch(`${API_URL}/mission`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ waypoints: wpList })
       });
-  
+
       if (!res.ok) {
         const errorData = await res.json();
         toast.error(`❌ ${errorData.message}`);
         logAction(`Mission upload failed: ${errorData.message}`);
         return;
       }
-  
+
       const data = await res.json();
       toast.success(`✅ ${data.message}`);
       logAction("Uploaded mission");
@@ -93,8 +85,7 @@ function App() {
       toast.error("❌ Mission upload failed");
       logAction("Mission upload failed");
     }
-  };  
-  
+  };
 
   const clearMission = async () => {
     try {
@@ -158,9 +149,42 @@ function App() {
           <div className={styles.label}>Current Mission Plan</div>
           <ul>
             {status.mission.map((wp, index) => (
-              <li key={index}>Waypoint {index + 1}: {wp}</li>
+              <li key={index} style={{
+                fontWeight: index === status.current_wp_index ? 'bold' : 'normal',
+                color: index === status.current_wp_index ? '#007bff' : 'black'
+              }}>
+                Waypoint {index + 1}: {wp.name || wp}
+                {index === status.current_wp_index && " → Executing"}
+              </li>
             ))}
           </ul>
+
+          {status.current_wp_index !== null && (
+            <div style={{ marginTop: "1rem" }}>
+              <div style={{
+                height: '10px',
+                width: '100%',
+                backgroundColor: '#eee',
+                borderRadius: '5px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${((status.current_wp_index + 1) / status.mission.length) * 100}%`,
+                  backgroundColor: '#007bff',
+                  transition: 'width 0.5s ease-in-out'
+                }} />
+              </div>
+              <div style={{ fontSize: '0.9rem', marginTop: '0.3rem' }}>
+                Progress: {status.current_wp_index + 1} / {status.mission.length}
+              </div>
+            </div>
+          )}
+
+          <MapView
+            mission={status.mission}
+            currentIndex={status.current_wp_index}
+          />
         </div>
       )}
 
