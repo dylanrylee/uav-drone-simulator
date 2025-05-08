@@ -149,6 +149,36 @@ def upload_mission():
     status["mission"] = generated
     return jsonify({"message": "Mission uploaded", "mission": status["mission"]})
 
+@app.route('/api/inject_failure', methods=['POST'])
+def inject_failure():
+    data = request.json
+    mode = data.get("mode")
+
+    if mode == "gps_loss":
+        status["gps_locked"] = False
+        return jsonify({"message": "Simulated GPS loss"})
+
+    elif mode == "low_battery":
+        status["battery"] = 4
+        return jsonify({"message": "Simulated critical battery"})
+
+    elif mode == "motor_fail":
+        if status["state"] == "flying":
+            status["flight_mode"] = "FAILSAFE"
+            status["state"] = "landing"
+            return jsonify({"message": "Simulated motor failure — drone landing"})
+        return jsonify({"message": "Motor failure only affects flying drones"}), 400
+
+    elif mode == "reset":
+        status.update({
+            "gps_locked": True,
+            "battery": 100,
+            "flight_mode": "MANUAL"
+        })
+        return jsonify({"message": "System reset to normal"})
+
+    return jsonify({"message": "Invalid failure mode"}), 400
+
 
 @app.route('/api/clear_mission', methods=['POST'])
 def clear_mission():
