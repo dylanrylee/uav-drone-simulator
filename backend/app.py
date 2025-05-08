@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import threading
 import time
+import random
+from math import radians, cos, sin, asin, sqrt
 
 app = Flask(__name__)
 CORS(app)
@@ -17,6 +19,14 @@ status = {
     "gps_locked": True,
     "flight_mode": "MANUAL"
 }
+
+# Helper: Haversine distance in KM
+def is_within_radius(lat1, lng1, lat2, lng2, radius_km):
+    dlat = radians(lat2 - lat1)
+    dlng = radians(lng2 - lng1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+    c = 2 * asin(sqrt(a))
+    return (6371 * c) <= radius_km  # Earth radius in KM
 
 # === Background Thread for Real-Time Simulation ===
 def telemetry_loop():
@@ -116,23 +126,28 @@ def upload_mission():
     data = request.json
     raw_waypoints = data.get("waypoints", [])
 
-    # Use a Calgary-ish base location
-    base_lat, base_lng = 51.0447, -114.0719
+    base_lat, base_lng = 51.0447, -114.0719  # Calgary
+    MAX_RADIUS_KM = 2
 
-    # Generate fake GPS points slightly offset for each waypoint
-    status["mission"] = [
-        {
-            "name": wp,
-            "lat": base_lat + (i * 0.001),
-            "lng": base_lng + (i * 0.001)
-        }
-        for i, wp in enumerate(raw_waypoints)
-    ]
+    generated = []
+    for wp in raw_waypoints:
+        for _ in range(10):  # try 10 times to find a valid point
+            offset_lat = random.uniform(-0.01, 0.01)
+            offset_lng = random.uniform(-0.01, 0.01)
+            new_lat = base_lat + offset_lat
+            new_lng = base_lng + offset_lng
+            if is_within_radius(base_lat, base_lng, new_lat, new_lng, MAX_RADIUS_KM):
+                generated.append({
+                    "name": wp,
+                    "lat": round(new_lat, 6),
+                    "lng": round(new_lng, 6)
+                })
+                break
+        else:
+            return jsonify({"message": f"Failed to assign valid location for {wp}"}), 400
 
-    return jsonify({
-        "message": "Mission uploaded",
-        "mission": status["mission"]
-    })
+    status["mission"] = generated
+    return jsonify({"message": "Mission uploaded", "mission": status["mission"]})
 
 
 @app.route('/api/clear_mission', methods=['POST'])
