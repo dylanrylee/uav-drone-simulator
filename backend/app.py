@@ -23,55 +23,56 @@ status = {
 # Helper: Haversine distance in KM
 def is_within_radius(lat1, lng1, lat2, lng2, radius_km):
     dlat = radians(lat2 - lat1)
-    dlng = radians(lng2 - lng1)
+    dlng = radians(lat2 - lng2)
     a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
     c = 2 * asin(sqrt(a))
-    return (6371 * c) <= radius_km  # Earth radius in KM
+    return (6371 * c) <= radius_km
 
 # === Background Thread for Real-Time Simulation ===
 def telemetry_loop():
     while True:
-        time.sleep(5)  # Runs every 5 seconds
+        time.sleep(5)
 
-        # Skip simulation if drone is disarmed
+        print(f"[LOOP] Battery={status['battery']} | Alt={status['altitude']} | State={status['state']} | Armed={status['armed']}")
+
         if status["state"] == "disarmed":
             continue
 
-        # === Battery drain ===
         status["battery"] = max(status["battery"] - 1, 0)
 
-        # === Altitude simulation ===
         if status["state"] == "flying":
             status["altitude"] = min(status["altitude"] + 2, 120)
         elif status["state"] == "landing":
             status["altitude"] = max(status["altitude"] - 5, 0)
-            if status["altitude"] == 0:
-                status["state"] = "disarmed"
-                status["armed"] = False
-                status["flight_mode"] = "MANUAL"
-                status["current_wp_index"] = None
 
-        # === Critical battery → initiate landing ===
         if status["battery"] <= 5 and status["state"] == "flying":
+            print("[AUTO] Critical battery, initiating FAILSAFE")
             status["state"] = "landing"
             status["flight_mode"] = "FAILSAFE"
             status["current_wp_index"] = None
 
-        # === Mission simulation ===
         if status["state"] == "flying" and status["mission"]:
             idx = status.get("current_wp_index")
             if idx is not None and idx < len(status["mission"]) - 1:
                 status["current_wp_index"] += 1
             elif idx == len(status["mission"]) - 1:
-                # Final waypoint reached → initiate landing
+                print("[AUTO] Final waypoint reached — landing")
                 status["state"] = "landing"
                 status["flight_mode"] = "MANUAL"
                 status["current_wp_index"] = None
 
+        # ✅ Final disarm logic
+        if status["altitude"] == 0 and status["state"] != "disarmed":
+            print("[AUTO] Altitude = 0 → Disarming")
+            status["state"] = "disarmed"
+            status["armed"] = False
+            status["flight_mode"] = "MANUAL"
+            status["current_wp_index"] = None
+
 # Start background telemetry thread
 threading.Thread(target=telemetry_loop, daemon=True).start()
 
-# === API Routes ===
+# === API Endpoints ===
 
 @app.route('/api/arm', methods=['POST'])
 def arm():
@@ -131,7 +132,7 @@ def upload_mission():
 
     generated = []
     for wp in raw_waypoints:
-        for _ in range(10):  # try 10 times to find a valid point
+        for _ in range(10):
             offset_lat = random.uniform(-0.01, 0.01)
             offset_lng = random.uniform(-0.01, 0.01)
             new_lat = base_lat + offset_lat
@@ -178,7 +179,6 @@ def inject_failure():
         return jsonify({"message": "System reset to normal"})
 
     return jsonify({"message": "Invalid failure mode"}), 400
-
 
 @app.route('/api/clear_mission', methods=['POST'])
 def clear_mission():
