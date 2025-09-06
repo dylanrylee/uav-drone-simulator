@@ -49,3 +49,8 @@ cd ../backend
 ```
 pip install -r requirements.txt
 python app.py
+
+### Usage
+- Start the backend Flask API
+- Launch the React frontend
+- Open the app in your browser to begin simulating missions and testing UAV features
